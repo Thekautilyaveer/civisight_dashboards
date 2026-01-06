@@ -3,6 +3,7 @@ const dotenv = require('dotenv');
 const User = require('./models/User');
 const County = require('./models/County');
 const Task = require('./models/Task');
+const logger = require('./utils/logger');
 
 dotenv.config();
 
@@ -41,12 +42,12 @@ const seedData = async () => {
     // Create admin user
     const admin = new User({
       username: 'admin',
-      email: 'admin@civisight.com',
+      email: 'admin@civisight.org',
       password: 'admin123',
       role: 'admin'
     });
     await admin.save();
-    console.log('Created admin user (email: admin@civisight.com, password: admin123)');
+    console.log('Created admin user (email: admin@civisight.org, password: admin123)');
 
     // Create a county user for each county
 // Create a county user for each county
@@ -55,7 +56,7 @@ const seedData = async () => {
       const countyName = county.name.toLowerCase().replace(/\s+/g, '');
       const countyUser = new User({
         username: `${countyName}_user`,
-        email: `${countyName}@civisight.com`,
+        email: `${countyName}@civisight.org`,
         password: 'county123',
         role: 'county_user',
         countyId: county._id
@@ -120,7 +121,8 @@ const seedData = async () => {
     console.log('Seed data created successfully!');
     process.exit(0);
   } catch (error) {
-    console.error('Error seeding data:', error);
+    logger.error('Error seeding data:', error);
+    console.error('Error seeding data:', error.message);
     process.exit(1);
   }
 };

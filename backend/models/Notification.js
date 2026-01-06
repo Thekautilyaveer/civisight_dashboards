@@ -32,5 +32,16 @@ const notificationSchema = new mongoose.Schema({
   timestamps: true
 });
 
+// Database indexes for performance optimization
+// Single field indexes
+notificationSchema.index({ userId: 1 }); // For getting user notifications
+notificationSchema.index({ taskId: 1 }); // For task-related notifications
+notificationSchema.index({ read: 1 }); // For filtering unread notifications
+notificationSchema.index({ createdAt: -1 }); // For sorting by date (descending)
+
+// Compound indexes for common query patterns
+notificationSchema.index({ userId: 1, read: 1 }); // User's unread notifications
+notificationSchema.index({ userId: 1, createdAt: -1 }); // User notifications sorted by date
+
 module.exports = mongoose.model('Notification', notificationSchema);
 

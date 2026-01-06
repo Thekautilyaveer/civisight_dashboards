@@ -1,16 +1,32 @@
 const nodemailer = require('nodemailer');
+const logger = require('./logger');
 
-// Create transporter
-const transporter = nodemailer.createTransport({
-  service: 'gmail',
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASSWORD
+// Create transporter only if email credentials are available
+let transporter = null;
+
+if (process.env.EMAIL_USER && process.env.EMAIL_PASSWORD) {
+  try {
+    transporter = nodemailer.createTransport({
+      service: 'gmail',
+      auth: {
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASSWORD
+      }
+    });
+  } catch (error) {
+    logger.error('Failed to create email transporter:', error);
   }
-});
+} else {
+  logger.warn('Email credentials not configured. Email functionality will be disabled.');
+}
 
 // Send reminder email
 const sendReminderEmail = async (to, countyName, taskName, deadline) => {
+  if (!transporter) {
+    logger.warn('Email transporter not available. Skipping email send.');
+    return { success: false, message: 'Email not configured' };
+  }
+  
   try {
     const mailOptions = {
       from: process.env.EMAIL_USER,
@@ -31,16 +47,21 @@ const sendReminderEmail = async (to, countyName, taskName, deadline) => {
     };
 
     const info = await transporter.sendMail(mailOptions);
-    console.log('Reminder email sent successfully:', info.messageId);
+    logger.info('Reminder email sent successfully:', { messageId: info.messageId, to });
     return { success: true, messageId: info.messageId };
   } catch (error) {
-    console.error('Error sending reminder email:', error);
+    logger.error('Error sending reminder email:', { error, to, countyName, taskName });
     throw error;
   }
 };
 
 // Send task assignment email
 const sendTaskAssignmentEmail = async (to, countyName, taskName, deadline, assignedBy) => {
+  if (!transporter) {
+    logger.warn('Email transporter not available. Skipping email send.');
+    return { success: false, message: 'Email not configured' };
+  }
+  
   try {
     const mailOptions = {
       from: process.env.EMAIL_USER,
@@ -62,16 +83,21 @@ const sendTaskAssignmentEmail = async (to, countyName, taskName, deadline, assig
     };
 
     const info = await transporter.sendMail(mailOptions);
-    console.log('Task assignment email sent successfully:', info.messageId);
+    logger.info('Task assignment email sent successfully:', { messageId: info.messageId, to, taskName });
     return { success: true, messageId: info.messageId };
   } catch (error) {
-    console.error('Error sending task assignment email:', error);
+    logger.error('Error sending task assignment email:', { error, to, countyName, taskName });
     throw error;
   }
 };
 
 // Send form upload notification email
 const sendFormUploadEmail = async (to, countyName, taskName, formName) => {
+  if (!transporter) {
+    logger.warn('Email transporter not available. Skipping email send.');
+    return { success: false, message: 'Email not configured' };
+  }
+  
   try {
     const mailOptions = {
       from: process.env.EMAIL_USER,
@@ -92,10 +118,10 @@ const sendFormUploadEmail = async (to, countyName, taskName, formName) => {
     };
 
     const info = await transporter.sendMail(mailOptions);
-    console.log('Form upload notification email sent successfully:', info.messageId);
+    logger.info('Form upload notification email sent successfully:', { messageId: info.messageId, to, formName });
     return { success: true, messageId: info.messageId };
   } catch (error) {
-    console.error('Error sending form upload email:', error);
+    logger.error('Error sending form upload email:', { error, to, countyName, taskName, formName });
     throw error;
   }
 };

@@ -43,5 +43,11 @@ userSchema.methods.comparePassword = async function(candidatePassword) {
   return bcrypt.compare(candidatePassword, this.password);
 };
 
+// Database indexes for performance optimization
+// Compound index for finding county users (very common query)
+userSchema.index({ countyId: 1, role: 1 });
+
+// Note: email and username already have unique indexes (from unique: true in schema)
+
 module.exports = mongoose.model('User', userSchema);
 

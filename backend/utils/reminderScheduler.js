@@ -1,6 +1,7 @@
 const Task = require('../models/Task');
 const County = require('../models/County');
 const { sendReminderEmail } = require('./email');
+const logger = require('./logger');
 
 // Check and send automatic reminders (3 days before deadline)
 const checkAndSendReminders = async () => {
@@ -45,14 +46,14 @@ const checkAndSendReminders = async () => {
           });
           await task.save();
 
-          console.log(`Automatic reminder sent for task: ${task.title} (${task.countyId.name})`);
+          logger.info(`Automatic reminder sent for task: ${task.title} (${task.countyId.name})`, { taskId: task._id, countyId: task.countyId._id });
         } catch (error) {
-          console.error(`Failed to send automatic reminder for task ${task._id}:`, error);
+          logger.error(`Failed to send automatic reminder for task ${task._id}:`, { error, taskId: task._id });
         }
       }
     }
   } catch (error) {
-    console.error('Error in reminder scheduler:', error);
+    logger.error('Error in reminder scheduler:', error);
   }
 };
 
@@ -64,7 +65,7 @@ const startReminderScheduler = () => {
   // Then run every hour
   setInterval(checkAndSendReminders, 60 * 60 * 1000);
   
-  console.log('Automatic reminder scheduler started (checks every hour)');
+  logger.info('Automatic reminder scheduler started (checks every hour)');
 };
 
 module.exports = {

@@ -2,23 +2,35 @@ const express = require('express');
 const router = express.Router();
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
+const County = require('../models/County');
 const { body, validationResult } = require('express-validator');
+const { auth, adminOnly } = require('../middleware/auth');
+const logger = require('../utils/logger');
 
 // Generate JWT Token
 const generateToken = (userId) => {
-  return jwt.sign({ userId }, process.env.JWT_SECRET || 'your-secret-key-change-in-production', {
+  if (!process.env.JWT_SECRET) {
+    throw new Error('JWT_SECRET environment variable is required');
+  }
+  return jwt.sign({ userId }, process.env.JWT_SECRET, {
     expiresIn: '7d'
   });
 };
 
 // @route   POST /api/auth/register
-// @desc    Register a new user
-// @access  Public
-router.post('/register', [
+// @desc    Register a new user (Admin only - Public registration is disabled)
+// @access  Private (Admin only)
+// @note    Public registration is disabled for security. Only authenticated admins can create new users.
+router.post('/register', auth, adminOnly, [
   body('username').trim().isLength({ min: 3 }).withMessage('Username must be at least 3 characters'),
   body('email').isEmail().withMessage('Please provide a valid email'),
-  body('password').isLength({ min: 6 }).withMessage('Password must be at least 6 characters'),
-  body('role').optional().isIn(['admin', 'county_user']).withMessage('Invalid role')
+  body('password')
+    .isLength({ min: 8 })
+    .withMessage('Password must be at least 8 characters')
+    .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])/)
+    .withMessage('Password must contain at least one uppercase letter, one lowercase letter, one number, and one special character (@$!%*?&)'),
+  body('role').isIn(['admin', 'county_user']).withMessage('Invalid role'),
+  body('countyId').optional().isMongoId().withMessage('Invalid county ID')
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
@@ -29,26 +41,40 @@ router.post('/register', [
     const { username, email, password, role, countyId } = req.body;
 
     // Check if user exists
-    let user = await User.findOne({ $or: [{ email }, { username }] });
+    let user = await User.findOne({ $or: [{ email: email.toLowerCase() }, { username }] });
     if (user) {
       return res.status(400).json({ message: 'User already exists' });
+    }
+
+    // Validate countyId if provided for county_user
+    if (role === 'county_user') {
+      if (!countyId) {
+        return res.status(400).json({ message: 'County ID is required for county users' });
+      }
+      // Verify county exists
+      const county = await County.findById(countyId);
+      if (!county) {
+        return res.status(404).json({ message: 'County not found' });
+      }
     }
 
     // Create user
     user = new User({
       username,
-      email,
+      email: email.toLowerCase(),
       password,
-      role: role || 'county_user',
-      countyId: countyId || null
+      role,
+      countyId: role === 'admin' ? null : countyId
     });
 
     await user.save();
 
-    const token = generateToken(user._id);
+    // Log the action
+    logger.info(`Admin ${req.user.username} created user: ${username} (${email}) with role: ${role}`);
 
+    // Don't return token - admin creates account, user logs in separately
     res.status(201).json({
-      token,
+      message: 'User created successfully',
       user: {
         id: user._id,
         username: user.username,
@@ -58,7 +84,10 @@ router.post('/register', [
       }
     });
   } catch (error) {
-    console.error(error);
+    logger.error('Error creating user:', error);
+    if (error.code === 11000) {
+      return res.status(400).json({ message: 'User with this email or username already exists' });
+    }
     res.status(500).json({ message: 'Server error' });
   }
 });
@@ -78,8 +107,8 @@ router.post('/login', [
 
     const { email, password } = req.body;
 
-    // Check if user exists
-    const user = await User.findOne({ email });
+    // Check if user exists - convert email to lowercase to match database
+    const user = await User.findOne({ email: email.toLowerCase() });
     if (!user) {
       return res.status(400).json({ message: 'Invalid credentials' });
     }
@@ -103,7 +132,7 @@ router.post('/login', [
       }
     });
   } catch (error) {
-    console.error(error);
+    logger.error('Error during login:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });
@@ -124,7 +153,7 @@ router.get('/me', require('../middleware/auth').auth, async (req, res) => {
       }
     });
   } catch (error) {
-    console.error(error);
+    logger.error('Error fetching current user:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });

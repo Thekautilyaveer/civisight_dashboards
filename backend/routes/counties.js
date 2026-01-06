@@ -3,6 +3,8 @@ const router = express.Router();
 const { auth, adminOnly } = require('../middleware/auth');
 const County = require('../models/County');
 const Task = require('../models/Task');
+const User = require('../models/User');
+const logger = require('../utils/logger');
 
 // @route   GET /api/counties
 // @desc    Get all counties with task statistics
@@ -43,7 +45,7 @@ router.get('/', auth, async (req, res) => {
 
     res.json(countiesWithStats);
   } catch (error) {
-    console.error(error);
+    logger.error('Error fetching counties:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });
@@ -65,7 +67,7 @@ router.get('/:id', auth, async (req, res) => {
 
     res.json(county);
   } catch (error) {
-    console.error(error);
+    logger.error('Error fetching county by ID:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });
@@ -75,21 +77,45 @@ router.get('/:id', auth, async (req, res) => {
 // @access  Private (Admin only)
 router.post('/', auth, adminOnly, async (req, res) => {
   try {
-    const { name, code, description } = req.body;
+    const { name, code, description, email } = req.body;
 
     const county = new County({
       name,
       code,
-      description: description || ''
+      description: description || '',
+      email: email || ''
     });
 
     await county.save();
+
+    // Automatically create a county user for this county
+    const countyCodeLower = code.toLowerCase();
+    const countyEmail = `${countyCodeLower}county@civisight.org`;
+    const countyUsername = `${countyCodeLower}_user`;
+
+    try {
+      const countyUser = new User({
+        username: countyUsername,
+        email: countyEmail,
+        password: 'county123',
+        role: 'county_user',
+        countyId: county._id
+      });
+
+      await countyUser.save();
+      logger.info(`Created county user: ${countyEmail} / county123 (${countyUsername})`);
+    } catch (userError) {
+      // If user creation fails (e.g., duplicate email), log but don't fail county creation
+      logger.error('Error creating county user:', userError);
+      // Continue - county is already created
+    }
+
     res.status(201).json(county);
   } catch (error) {
     if (error.code === 11000) {
       return res.status(400).json({ message: 'County with this name or code already exists' });
     }
-    console.error(error);
+    logger.error('Error creating county:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });
@@ -113,7 +139,7 @@ router.put('/:id', auth, adminOnly, async (req, res) => {
 
     res.json(county);
   } catch (error) {
-    console.error(error);
+    logger.error('Error updating county:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });
@@ -133,7 +159,7 @@ router.delete('/:id', auth, adminOnly, async (req, res) => {
 
     res.json({ message: 'County deleted successfully' });
   } catch (error) {
-    console.error(error);
+    logger.error('Error deleting county:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });

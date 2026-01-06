@@ -2,8 +2,26 @@ const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
 const dotenv = require('dotenv');
+const logger = require('./utils/logger');
 
 dotenv.config();
+
+// Validate required environment variables
+const requiredEnvVars = [
+  'JWT_SECRET', 
+  'MONGODB_URI', 
+  'EMAIL_USER', 
+  'EMAIL_PASSWORD',
+  'AWS_ACCESS_KEY_ID',
+  'AWS_SECRET_ACCESS_KEY',
+  'AWS_S3_BUCKET'
+];
+requiredEnvVars.forEach(varName => {
+  if (!process.env[varName]) {
+    logger.error(`ERROR: ${varName} environment variable is required`);
+    process.exit(1);
+  }
+});
 
 const app = express();
 
@@ -16,11 +34,13 @@ app.use('/api/auth', require('./routes/auth'));
 app.use('/api/counties', require('./routes/counties'));
 app.use('/api/tasks', require('./routes/tasks'));
 app.use('/api/notifications', require('./routes/notifications'));
+app.use('/api/contacts', require('./routes/contacts'));
+app.use('/api/users', require('./routes/users'));
 
 // Connect to MongoDB
 mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/civisight')
-.then(() => console.log('MongoDB connected'))
-.catch(err => console.error('MongoDB connection error:', err));
+.then(() => logger.info('MongoDB connected'))
+.catch(err => logger.error('MongoDB connection error:', err));
 
 const PORT = process.env.PORT || 5001;
 
@@ -28,7 +48,21 @@ const PORT = process.env.PORT || 5001;
 const { startReminderScheduler } = require('./utils/reminderScheduler');
 startReminderScheduler();
 
+// Global error handler - must be after all routes
+app.use((err, req, res, next) => {
+  logger.error('Unhandled error:', err);
+  res.status(err.status || 500).json({
+    message: err.message || 'Internal server error',
+    error: process.env.NODE_ENV === 'development' ? err.stack : undefined
+  });
+});
+
+// 404 handler
+app.use((req, res) => {
+  res.status(404).json({ message: 'Route not found' });
+});
+
 app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+  logger.info(`Server running on port ${PORT}`);
 });
 

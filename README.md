@@ -44,8 +44,8 @@ node seed.js
 ```
 
 This will create:
-- Admin user: `admin@civisight.com` / `admin123`
-- County user: `county@civisight.com` / `county123`
+- Admin user: `admin@civisight.org` / `admin123`
+- County user: `county@civisight.org` / `county123`
 - 10 sample counties
 - 5 sample tasks
 
@@ -124,8 +124,8 @@ civisight/
 
 ## Default Credentials
 
-- **Admin**: admin@civisight.com / admin123
-- **County User**: county@civisight.com / county123
+- **Admin**: admin@civisight.org / admin123
+- **County User**: county@civisight.org / county123
 
 ## Environment Variables
 

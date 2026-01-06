@@ -64,5 +64,24 @@ const taskSchema = new mongoose.Schema({
   timestamps: true
 });
 
+// Database indexes for performance optimization
+// Single field indexes
+taskSchema.index({ countyId: 1 }); // For filtering by county
+taskSchema.index({ status: 1 }); // For filtering by status
+taskSchema.index({ priority: 1 }); // For filtering by priority
+taskSchema.index({ deadline: 1 }); // For date range queries and sorting
+taskSchema.index({ createdAt: 1 }); // For date range queries and sorting
+taskSchema.index({ assignedBy: 1 }); // For finding tasks by assigner
+
+// Compound indexes for common query patterns
+taskSchema.index({ countyId: 1, status: 1 }); // Most common: filter by county + status
+taskSchema.index({ countyId: 1, deadline: 1 }); // County tasks sorted by deadline
+taskSchema.index({ status: 1, deadline: 1 }); // For reminder scheduler queries
+taskSchema.index({ countyId: 1, priority: 1 }); // County + priority filtering
+taskSchema.index({ countyId: 1, createdAt: 1 }); // County + assigned date filtering
+
+// Text search index for title and description searches
+taskSchema.index({ title: 'text', description: 'text' });
+
 module.exports = mongoose.model('Task', taskSchema);
 

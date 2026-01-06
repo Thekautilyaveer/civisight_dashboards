@@ -3,6 +3,7 @@ const router = express.Router();
 const { auth } = require('../middleware/auth');
 const Notification = require('../models/Notification');
 const Task = require('../models/Task');
+const logger = require('../utils/logger');
 
 // @route   GET /api/notifications
 // @desc    Get all notifications for current user
@@ -16,7 +17,7 @@ router.get('/', auth, async (req, res) => {
 
     res.json(notifications);
   } catch (error) {
-    console.error(error);
+    logger.error('Error fetching notifications:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });
@@ -53,7 +54,7 @@ router.get('/upcoming', auth, async (req, res) => {
 
     res.json(upcomingTasks);
   } catch (error) {
-    console.error(error);
+    logger.error('Error fetching upcoming tasks:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });
@@ -79,7 +80,7 @@ router.put('/:id/read', auth, async (req, res) => {
 
     res.json(notification);
   } catch (error) {
-    console.error(error);
+    logger.error('Error marking notification as read:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });
@@ -96,7 +97,7 @@ router.put('/read-all', auth, async (req, res) => {
 
     res.json({ message: 'All notifications marked as read' });
   } catch (error) {
-    console.error(error);
+    logger.error('Error marking all notifications as read:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });

@@ -1,15 +1,14 @@
 const express = require('express');
 const router = express.Router();
-const path = require('path');
-const fs = require('fs');
 const { auth, adminOnly } = require('../middleware/auth');
 const Task = require('../models/Task');
 const County = require('../models/County');
 const Notification = require('../models/Notification');
 const { body, validationResult } = require('express-validator');
-const { uploadForm, uploadFilledForm } = require('../middleware/upload');
+const { uploadForm, uploadFilledForm, getSignedUrl, deleteFile } = require('../middleware/upload');
 const { sendReminderEmail, sendTaskAssignmentEmail, sendFormUploadEmail } = require('../utils/email');
 const User = require('../models/User');
+const logger = require('../utils/logger');
 
 // @route   GET /api/tasks
 // @desc    Get all tasks (filtered by county for county users)
@@ -78,7 +77,7 @@ router.get('/', auth, async (req, res) => {
 
     res.json(tasks);
   } catch (error) {
-    console.error(error);
+    logger.error('Error fetching tasks:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });
@@ -103,7 +102,7 @@ router.get('/:id', auth, async (req, res) => {
 
     res.json(task);
   } catch (error) {
-    console.error(error);
+    logger.error('Error fetching task:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });
@@ -155,10 +154,10 @@ router.post('/', auth, adminOnly, [
           deadline,
           assignedByUser.username
         );
-        console.log(`Task assignment email sent to ${populatedCounty.email}`);
+        logger.info(`Task assignment email sent to ${populatedCounty.email}`);
       }
     } catch (emailError) {
-      console.error('Failed to send task assignment email:', emailError);
+      logger.error('Failed to send task assignment email:', emailError);
       // Continue even if email fails
     }
 
@@ -182,7 +181,7 @@ router.post('/', auth, adminOnly, [
 
     res.status(201).json(populatedTask);
   } catch (error) {
-    console.error(error);
+    logger.error('Error creating task:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });
@@ -193,7 +192,7 @@ router.post('/', auth, adminOnly, [
 router.post('/bulk', auth, adminOnly, [
   body('title').trim().notEmpty().withMessage('Title is required'),
   body('countyIds').isArray().withMessage('County IDs must be an array'),
-  body('countyIds.*').notEmpty().withMessage('Each county ID is required'),
+  body('countyIds.*').isMongoId().withMessage('Each county ID must be a valid MongoDB ObjectId'),
   body('deadline').isISO8601().withMessage('Valid deadline is required')
 ], async (req, res) => {
   try {
@@ -252,7 +251,7 @@ router.post('/bulk', auth, adminOnly, [
           await notification.save();
         }
       } catch (emailError) {
-        console.error(`Failed to send emails for task ${createdTask._id}:`, emailError);
+        logger.error(`Failed to send emails for task ${createdTask._id}:`, emailError);
       }
     }
 
@@ -266,7 +265,7 @@ router.post('/bulk', auth, adminOnly, [
       tasks: populatedTasks 
     });
   } catch (error) {
-    console.error(error);
+    logger.error('Error creating bulk tasks:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });
@@ -310,7 +309,7 @@ router.put('/:id', auth, [
 
     res.json(populatedTask);
   } catch (error) {
-    console.error(error);
+    logger.error('Error updating task:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });
@@ -330,7 +329,7 @@ router.delete('/:id', auth, adminOnly, async (req, res) => {
 
     res.json({ message: 'Task deleted successfully' });
   } catch (error) {
-    console.error(error);
+    logger.error('Error deleting task:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });
@@ -358,9 +357,9 @@ router.post('/:id/reminder', auth, adminOnly, async (req, res) => {
         task.title,
         task.deadline
       );
-      console.log(`Reminder email sent successfully to ${emailTo}`);
+      logger.info(`Reminder email sent successfully to ${emailTo}`);
     } catch (emailError) {
-      console.error('Failed to send email:', emailError);
+      logger.error('Failed to send reminder email:', emailError);
       // Continue even if email fails - still record the reminder
     }
 
@@ -388,7 +387,7 @@ router.post('/:id/reminder', auth, adminOnly, async (req, res) => {
       task: await Task.findById(task._id).populate('countyId', 'name code email')
     });
   } catch (error) {
-    console.error(error);
+    logger.error('Error sending reminder:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });
@@ -407,18 +406,22 @@ router.post('/:id/upload-form', auth, adminOnly, uploadForm, async (req, res) =>
       return res.status(400).json({ message: 'No file uploaded' });
     }
 
-    // Delete old form file if exists
-    if (task.formFile && task.formFile.filePath) {
-      const oldFilePath = path.join(__dirname, '..', task.formFile.filePath);
-      if (fs.existsSync(oldFilePath)) {
-        fs.unlinkSync(oldFilePath);
-      }
+    // Check if file upload was successful (S3 key should exist)
+    if (!req.file.key) {
+      logger.error('File upload failed - no S3 key returned', { file: req.file });
+      return res.status(500).json({ message: 'File upload failed. Please check S3 configuration.' });
     }
 
+    // Delete old form file if exists
+    if (task.formFile && task.formFile.filePath) {
+      await deleteFile(task.formFile.filePath);
+    }
+
+    // Store S3 key as file path
     task.formFile = {
       originalName: req.file.originalname,
-      fileName: req.file.filename,
-      filePath: `uploads/forms/${req.file.filename}`,
+      fileName: req.file.key,
+      filePath: req.file.key,
       uploadedAt: new Date()
     };
 
@@ -436,7 +439,7 @@ router.post('/:id/upload-form', auth, adminOnly, uploadForm, async (req, res) =>
           populatedTask.title,
           req.file.originalname
         );
-        console.log(`Form upload notification sent to ${populatedTask.countyId.email}`);
+        logger.info(`Form upload notification sent to ${populatedTask.countyId.email}`);
       }
       
       // Create notifications for county users
@@ -453,7 +456,7 @@ router.post('/:id/upload-form', auth, adminOnly, uploadForm, async (req, res) =>
         await notification.save();
       }
     } catch (emailError) {
-      console.error('Failed to send form upload email:', emailError);
+      logger.error('Failed to send form upload email:', emailError);
     }
 
     const populatedTask = await Task.findById(task._id)
@@ -462,8 +465,8 @@ router.post('/:id/upload-form', auth, adminOnly, uploadForm, async (req, res) =>
 
     res.json({ message: 'Form uploaded successfully', task: populatedTask });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: error.message || 'Server error' });
+    logger.error('Error uploading form:', error);
+    res.status(500).json({ message: 'Server error' });
   }
 });
 
@@ -486,18 +489,22 @@ router.post('/:id/upload-filled-form', auth, uploadFilledForm, async (req, res) 
       return res.status(400).json({ message: 'No file uploaded' });
     }
 
-    // Delete old filled form file if exists
-    if (task.filledFormFile && task.filledFormFile.filePath) {
-      const oldFilePath = path.join(__dirname, '..', task.filledFormFile.filePath);
-      if (fs.existsSync(oldFilePath)) {
-        fs.unlinkSync(oldFilePath);
-      }
+    // Check if file upload was successful (S3 key should exist)
+    if (!req.file.key) {
+      logger.error('File upload failed - no S3 key returned', { file: req.file });
+      return res.status(500).json({ message: 'File upload failed. Please check S3 configuration.' });
     }
 
+    // Delete old filled form file if exists
+    if (task.filledFormFile && task.filledFormFile.filePath) {
+      await deleteFile(task.filledFormFile.filePath);
+    }
+
+    // Store S3 key as file path
     task.filledFormFile = {
       originalName: req.file.originalname,
-      fileName: req.file.filename,
-      filePath: `uploads/filled-forms/${req.file.filename}`,
+      fileName: req.file.key,
+      filePath: req.file.key,
       uploadedAt: new Date(),
       uploadedBy: req.user._id
     };
@@ -510,7 +517,7 @@ router.post('/:id/upload-filled-form', auth, uploadFilledForm, async (req, res) 
 
     res.json({ message: 'Filled form uploaded successfully', task: populatedTask });
   } catch (error) {
-    console.error(error);
+    logger.error('Error uploading filled form:', error);
     res.status(500).json({ message: error.message || 'Server error' });
   }
 });
@@ -530,14 +537,19 @@ router.get('/:id/download-form', auth, async (req, res) => {
       return res.status(403).json({ message: 'Access denied' });
     }
 
-    const filePath = path.join(__dirname, '..', task.formFile.filePath);
-    if (!fs.existsSync(filePath)) {
-      return res.status(404).json({ message: 'File not found on server' });
+    // Generate signed URL for S3 file
+    const signedUrl = await getSignedUrl(task.formFile.filePath);
+    if (!signedUrl) {
+      return res.status(404).json({ message: 'File not found' });
     }
-
-    res.download(filePath, task.formFile.originalName);
+    
+    // Return signed URL as JSON instead of redirecting
+    res.json({ 
+      downloadUrl: signedUrl,
+      fileName: task.formFile.originalName || 'form.pdf'
+    });
   } catch (error) {
-    console.error(error);
+    logger.error('Error downloading form:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });
@@ -557,14 +569,19 @@ router.get('/:id/download-filled-form', auth, async (req, res) => {
       return res.status(403).json({ message: 'Access denied' });
     }
 
-    const filePath = path.join(__dirname, '..', task.filledFormFile.filePath);
-    if (!fs.existsSync(filePath)) {
-      return res.status(404).json({ message: 'File not found on server' });
+    // Generate signed URL for S3 file
+    const signedUrl = await getSignedUrl(task.filledFormFile.filePath);
+    if (!signedUrl) {
+      return res.status(404).json({ message: 'File not found' });
     }
-
-    res.download(filePath, task.filledFormFile.originalName);
+    
+    // Return signed URL as JSON instead of redirecting
+    res.json({ 
+      downloadUrl: signedUrl,
+      fileName: task.filledFormFile.originalName || 'filled-form.pdf'
+    });
   } catch (error) {
-    console.error(error);
+    logger.error('Error downloading filled form:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });
