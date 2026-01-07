@@ -30,7 +30,13 @@ router.post('/register', auth, adminOnly, [
     .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])/)
     .withMessage('Password must contain at least one uppercase letter, one lowercase letter, one number, and one special character (@$!%*?&)'),
   body('role').isIn(['admin', 'county_user']).withMessage('Invalid role'),
-  body('countyId').optional().isMongoId().withMessage('Invalid county ID')
+  body('countyId')
+    .optional({ values: 'falsy' })
+    .custom((value) => {
+      if (!value || value === '') return true; // Allow empty/undefined for admin users
+      return /^[0-9a-fA-F]{24}$/.test(value); // Validate MongoDB ObjectId format
+    })
+    .withMessage('Invalid county ID')
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
@@ -39,6 +45,9 @@ router.post('/register', auth, adminOnly, [
     }
 
     const { username, email, password, role, countyId } = req.body;
+    
+    // Clean up countyId - remove if empty string or null for admin users
+    const cleanCountyId = (role === 'admin' || !countyId || countyId === '') ? null : countyId;
 
     // Check if user exists
     let user = await User.findOne({ $or: [{ email: email.toLowerCase() }, { username }] });
@@ -48,11 +57,11 @@ router.post('/register', auth, adminOnly, [
 
     // Validate countyId if provided for county_user
     if (role === 'county_user') {
-      if (!countyId) {
+      if (!cleanCountyId) {
         return res.status(400).json({ message: 'County ID is required for county users' });
       }
       // Verify county exists
-      const county = await County.findById(countyId);
+      const county = await County.findById(cleanCountyId);
       if (!county) {
         return res.status(404).json({ message: 'County not found' });
       }
@@ -64,7 +73,7 @@ router.post('/register', auth, adminOnly, [
       email: email.toLowerCase(),
       password,
       role,
-      countyId: role === 'admin' ? null : countyId
+      countyId: cleanCountyId
     });
 
     await user.save();
